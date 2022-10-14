@@ -278,6 +278,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
           try do
+            Logger.error("Sending diff #{inspect(diff)} to neighbour #{inspect(neighbour)}")
             send(neighbour, {:diff, %Diff{diff | to: neighbour}})
             1
           rescue
