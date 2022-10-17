@@ -84,7 +84,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info({:diff, diff, keys}, state) do
-    new_state = update_state_with_delta(state, diff, keys)
+    new_state = update_state_with_delta(state, diff, keys, :remote)
     {:noreply, new_state}
   end
 
@@ -366,7 +366,7 @@ defmodule DeltaCrdt.CausalCrdt do
     delta =
       apply(state.crdt_module, function, [key | rest_args] ++ [state.node_id, state.crdt_state])
 
-    update_state_with_delta(state, delta, [key])
+    update_state_with_delta(state, delta, [key], :local)
   end
 
   defp diff(old_state, new_state, keys) do
@@ -408,10 +408,12 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  defp update_state_with_delta(state, delta, keys) do
+  defp update_state_with_delta(state, delta, keys, source) do
     new_crdt_state = state.crdt_module.join(state.crdt_state, delta, keys)
 
     new_state = Map.put(state, :crdt_state, new_crdt_state)
+
+    Logger.error("New crdt state from #{source}: #{inspect(new_state, pretty: true)}")
 
     diffs = diff(state, new_state, keys)
 
