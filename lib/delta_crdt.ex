@@ -122,7 +122,6 @@ defmodule DeltaCrdt do
 
   @spec put(t(), key(), value(), timeout()) :: t()
   def put(crdt, key, value, timeout \\ @default_timeout) do
-    Logger.warn("DeltaCrdt put #{inspect key} #{inspect value}")
     :ok = GenServer.call(crdt, {:operation, {:add, [key, value]}}, timeout)
     crdt
   end

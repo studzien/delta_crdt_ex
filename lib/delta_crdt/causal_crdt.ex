@@ -413,7 +413,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
     new_state = Map.put(state, :crdt_state, new_crdt_state)
 
-    Logger.error("New crdt state from #{source}: #{inspect(new_state, pretty: true)}")
+    Logger.warn("New crdt state from #{source}: #{inspect(new_state, pretty: false)}")
 
     diffs = diff(state, new_state, keys)
 
