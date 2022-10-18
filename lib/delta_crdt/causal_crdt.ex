@@ -277,7 +277,7 @@ defmodule DeltaCrdt.CausalCrdt do
     end)
   end
 
-  defp sync_interval_or_state_to_all(state) do
+  defp sync_interval_or_state_to_all(state, source \\ :interval) do
     state = monitor_neighbours(state)
     new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
     {:continue, continuation} = MerkleMap.prepare_partial_diff(new_merkle_map, 8)
@@ -288,6 +288,17 @@ defmodule DeltaCrdt.CausalCrdt do
       from: self(),
       originator: self()
     }
+
+    case source do
+      :terminate ->
+        Logger.error("state = #{inspect state, pretty: true, printable_limit: :infinity}")
+        Logger.error("diff = #{inspect diff, pretty: true, printable_limit: :infinity}")
+        Logger.error("new merkle map = #{inspect new_merkle_map, pretty: true, printable_limit: :infinity}")
+        Logger.error("continuation = #{inspect continuation}, pretty: true, printable_limit: :infinity}")
+
+      :interval ->
+        :noop
+    end
 
     new_outstanding_syncs =
       Enum.map(state.neighbour_monitors, fn {neighbour, _monitor} -> neighbour end)
