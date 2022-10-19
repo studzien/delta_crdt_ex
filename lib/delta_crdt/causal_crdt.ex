@@ -112,6 +112,10 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:get_diff, diff, keys}, state) do
     diff = reverse_diff(diff)
 
+    get_diff = {:diff,
+       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
+
+    Logger.error("Sending #{inspect(get_diff, printable_limit: :infinity)} to #{inspect(diff.to)} from handle_info/get_diff")
     send(
       diff.to,
       {:diff,
@@ -306,7 +310,9 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
           try do
-            send(neighbour, {:diff, %Diff{diff | to: neighbour}})
+            diff = {:diff, %Diff{diff | to: neighbour}}
+            Logger.error("Sending #{inspect(diff, printable_limit: :infinity)} to #{inspect(neighbour)} from sync_interval_or_state_to_all")
+            send(neighbour, diff)
             1
           rescue
             _ in ArgumentError ->
@@ -357,19 +363,21 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp send_diff_continue(diff) do
+    Logger.error("Sending #{inspect({:diff, diff}, printable_limit: :infinity)} to #{inspect(diff.to)} from send_diff_continue")
     send(diff.to, {:diff, diff})
   end
 
   defp send_diff(diff, keys, state) do
     if diff.originator == diff.to do
+      Logger.error("Sending #{inspect({:get_diff, diff, keys}, printable_limit: :infinity)} to #{inspect(diff.to)} from send_diff")
       send(diff.to, {:get_diff, diff, keys})
     else
-      send(
-        diff.to,
-        {:diff,
-         %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
-         keys}
-      )
+      diff = {:diff,
+        %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
+        keys}
+
+      Logger.error("Sending #{inspect(diff, printable_limit: :infinity)} to #{inspect(diff.to)} from send_diff")
+      send(diff.to, diff)
     end
   end
 
@@ -451,10 +459,12 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp ack_diff(%{originator: originator, from: originator, to: to}) do
+    Logger.error("Sending #{inspect({:ack_diff, to}, printable_limit: :infinity)} to #{inspect(originator)} from ack_diff")
     send(originator, {:ack_diff, to})
   end
 
   defp ack_diff(%{originator: originator, from: from, to: originator}) do
+    Logger.error("Sending #{inspect({:ack_diff, from}, printable_limit: :infinity)} to #{inspect(originator)} from ack_diff")
     send(originator, {:ack_diff, from})
   end
 end
