@@ -211,7 +211,7 @@ defmodule DeltaCrdt.CausalCrdt do
   # TODO this won't sync everything anymore, since syncing is now a 2-step process.
   # Figure out how to do this properly. Maybe with a `receive` block.
   def terminate(_reason, state) do
-    sync_interval_or_state_to_all(state)
+    sync_state_to_all(state)
   end
 
   defp truncate(list, :infinite), do: list
@@ -258,6 +258,23 @@ defmodule DeltaCrdt.CausalCrdt do
       )
 
     state
+  end
+
+  defp sync_state_to_all(state) do
+    diff = {:diff, state.crdt_state, Map.keys(state.crdt_module.read(state.crdt_state))}
+
+    Enum.map(state.neighbour_monitors, fn {neighbour, _monitor} -> neighbour end)
+    |> Enum.reject(fn pid -> self() == pid end)
+    |> Enum.each(fn neighbour ->
+      try do
+        send(neighbour, diff)
+      rescue
+        _ in ArgumentError ->
+          Logger.debug(
+            "tried to sync the whole state with a dead neighbour: #{inspect(neighbour)}, ignore the error and move on"
+          )
+      end
+    end)
   end
 
   defp sync_interval_or_state_to_all(state) do
@@ -404,9 +421,15 @@ defmodule DeltaCrdt.CausalCrdt do
         {:remove, key}, {mm, count} -> {MerkleMap.delete(mm, key), count + 1}
       end)
 
-    :telemetry.execute([:delta_crdt, :sync, :done], %{keys_updated_count: count}, %{
-      name: state.name
-    })
+    map_size = length(MerkleMap.keys(new_merkle_map))
+
+    :telemetry.execute(
+      [:delta_crdt, :sync, :done],
+      %{keys_updated_count: count, keys_total_count: map_size},
+      %{
+        name: state.name
+      }
+    )
 
     diffs_to_callback(state, new_state, diffs_keys(diffs))
 

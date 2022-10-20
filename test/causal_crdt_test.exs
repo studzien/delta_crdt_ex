@@ -1,5 +1,6 @@
 defmodule CausalCrdtTest do
   use ExUnit.Case, async: true
+  import Liveness
   doctest DeltaCrdt
 
   alias DeltaCrdt.AWLWWMap
@@ -70,6 +71,30 @@ defmodule CausalCrdtTest do
       Process.sleep(100)
       assert %{} == DeltaCrdt.to_map(context.c1)
       assert %{} == DeltaCrdt.to_map(context.c2)
+    end
+  end
+
+  describe "termination handling" do
+    setup do
+      {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+      {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+      {:ok, c3} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+
+      DeltaCrdt.set_neighbours(c1, [c1, c2, c3])
+      DeltaCrdt.set_neighbours(c2, [c1, c2])
+      DeltaCrdt.set_neighbours(c3, [c1, c3])
+      [c1: c1, c2: c2, c3: c3]
+    end
+
+    test "add is synced from stopped context to other contexts",
+    %{c1: c1, c2: c2, c3: c3} do
+      DeltaCrdt.put(c1, "key", "value")
+      :ok = GenServer.stop(c1)
+
+      eventually(fn ->
+        assert %{"key" => "value"} == DeltaCrdt.to_map(c2)
+        assert %{"key" => "value"} == DeltaCrdt.to_map(c3)
+      end)
     end
   end
 
@@ -208,5 +233,60 @@ defmodule CausalCrdtTest do
 
     assert %{"key1" => "value1", "key3" => "value3"} == DeltaCrdt.read(c, ~w[key1 key3])
     assert %{"key1" => "value1", "key3" => "value3"} == DeltaCrdt.take(c, ~w[key1 key3])
+  end
+
+  describe "telemetry" do
+    @sync_event [:delta_crdt, :sync, :done]
+
+    setup do
+      {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50, name: :c1)
+      {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50, name: :c2)
+
+      test_process = self()
+
+      :telemetry.attach(
+        __MODULE__,
+        @sync_event,
+        fn event, measurements, metadata, _config ->
+          send(test_process, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      [c1: c1, c2: c2]
+    end
+
+    test "events are emitted when the state changes", %{c1: c1, c2: c2} do
+      DeltaCrdt.put(c1, :a, 1)
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 1, keys_total_count: 1},
+                      %{name: :c1}}
+
+      refute_receive {:telemetry, @sync_event, _, %{name: :c2}}
+
+      DeltaCrdt.put(c1, :b, 1)
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 1, keys_total_count: 2},
+                      %{name: :c1}}
+
+      refute_receive {:telemetry, @sync_event, _, %{name: :c2}}
+
+      DeltaCrdt.set_neighbours(c1, [c2])
+      DeltaCrdt.set_neighbours(c2, [c1])
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 0, keys_total_count: 2},
+                      %{name: :c1}}
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 2, keys_total_count: 2},
+                      %{name: :c2}}
+
+      DeltaCrdt.delete(c2, :b)
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 1, keys_total_count: 1},
+                      %{name: :c1}}
+
+      assert_receive {:telemetry, @sync_event, %{keys_updated_count: 1, keys_total_count: 1},
+                      %{name: :c2}}
+    end
   end
 end
